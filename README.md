@@ -1,6 +1,6 @@
 <h1 align="center">
   <a href="https://github.com/orangebeard-io/qf-test-testrunlistener">
-    <img src="https://raw.githubusercontent.com/orangebeard-io/qf-test-testrunlistener/master/.github/logo_qf.svg" alt="Orangebeard.io FitNesse TestSystemListener" height="200">
+    <img src="https://raw.githubusercontent.com/orangebeard-io/qf-test-testrunlistener/master/.github/logo_qf.svg" alt="Orangebeard.io QF-Test TestRunListener" height="200">
   </a>
   <br>Orangebeard.io QF-Test TestRunListener<br>
 </h1>
@@ -8,9 +8,9 @@
 <h4 align="center">A test output listener for QF-Test.</h4>
 
 <p align="center">
-  <a href="https://github.com/orangebeard-io/qf-test-testrunlistener/actions">
+  <!-- <a href="https://github.com/orangebeard-io/qf-test-testrunlistener/actions">
     <img src="https://img.shields.io/github/workflow/status/orangebeard-io/qf-test-testrunlistener/release?style=flat-square"
-      alt="Build Status" />
+      alt="Build Status" /> -->
   </a>
   <a href="https://github.com/orangebeard-io/qf-test-testrunlistener/blob/master/LICENSE.txt">
     <img src="https://img.shields.io/github/license/orangebeard-io/qf-test-testrunlistener?style=flat-square"
