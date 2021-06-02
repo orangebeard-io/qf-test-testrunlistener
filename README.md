@@ -44,7 +44,7 @@ Run `maven clean install` to build the listener. A jar-with-dependencies will be
 
 ## Installation
 
-1. Place the jar-with dependencies in the plugins/qftest folder of your QF-Test's installation directory.
+1. Place the jar-with dependencies in the plugins folder of your QF-Test's installation directory (To find the right folder: Help > Info > System Info > dir.plugin).
 2. Reference and register the listener in a groovy script step at the beginning of your test project:
 
 ```groovy
