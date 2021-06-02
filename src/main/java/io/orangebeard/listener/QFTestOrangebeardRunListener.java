@@ -5,9 +5,11 @@ import de.qfs.apps.qftest.extensions.qftest.TestRunEvent;
 import de.qfs.apps.qftest.extensions.qftest.TestRunListener;
 import de.qfs.apps.qftest.extensions.qftest.TestSuiteNode;
 import de.qfs.apps.qftest.step.AbstractComponentDependant;
+import de.qfs.apps.qftest.step.AbstractStep;
 import io.orangebeard.client.OrangebeardClient;
 import io.orangebeard.client.OrangebeardProperties;
 import io.orangebeard.client.OrangebeardV1Client;
+import io.orangebeard.client.OrangebeardV2Client;
 import io.orangebeard.client.entity.Attribute;
 import io.orangebeard.client.entity.FinishTestItem;
 import io.orangebeard.client.entity.FinishTestRun;
@@ -19,6 +21,7 @@ import io.orangebeard.client.entity.Status;
 import io.orangebeard.client.entity.TestItemType;
 import io.orangebeard.client.entity.UpdateTestRun;
 import io.orangebeard.listener.helper.QfTestRunContext;
+import org.json.JSONObject;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -43,10 +46,11 @@ public class QFTestOrangebeardRunListener implements TestRunListener {
     private final QfTestRunContext context;
 
 
+
     public QFTestOrangebeardRunListener() {
         OrangebeardProperties orangebeardProperties = new OrangebeardProperties();
         orangebeardProperties.checkPropertiesArePresent();
-        client = new OrangebeardV1Client(
+        client = new OrangebeardV2Client(
                 orangebeardProperties.getEndpoint(),
                 orangebeardProperties.getAccessToken(),
                 orangebeardProperties.getProjectName(),
@@ -114,9 +118,14 @@ public class QFTestOrangebeardRunListener implements TestRunListener {
     @Override
     public void problemOccurred(TestRunEvent testRunEvent) {
         String nodeId = testRunEvent.getNode().getId();
-        if (!context.hasNode(nodeId)) {
+        if (determineType(testRunEvent) != null && !context.hasNode(nodeId)) {
             startItem(testRunEvent);
         }
+        Log logItem = new Log(context.getTestRun(), context.getNode(nodeId), getEventLogLevel(testRunEvent), testRunEvent.getMessage());
+        client.log(logItem);
+    }
+
+    private LogLevel getEventLogLevel(TestRunEvent testRunEvent) {
         LogLevel level;
         switch (testRunEvent.getLocalState()) {
             case 1:
@@ -129,49 +138,68 @@ public class QFTestOrangebeardRunListener implements TestRunListener {
             default:
                 level = LogLevel.info;
         }
-        Log logItem = new Log(context.getTestRun(), context.getNode(nodeId), level, testRunEvent.getMessage());
-        client.log(logItem);
+        return level;
     }
 
     private void startItem(TestRunEvent testRunEvent) {
-        TestSuiteNode node = testRunEvent.getNode();
         TestItemType type = determineType(testRunEvent);
-        String itemName = node.getName() != null ? node.getName() : testRunEvent.getNode().getStep().toString();
+        TestSuiteNode node = testRunEvent.getNode();
+        String itemName = node.getReportName() != null ? node.getReportName() : node.getName();
+        if(itemName == null || itemName.isEmpty()) {
+            itemName = testRunEvent.getNode().getStep().toString();
+        }
         if (node.getStep() instanceof AbstractComponentDependant) {
             itemName = itemName + " [" + ((AbstractComponentDependant) node.getStep()).getComponentId() + "]";
         }
-        StartTestItem startItem = new StartTestItem(
-                context.getTestRun(),
-                itemName,
-                type,
-                node.getComment(),
-                Collections.singleton(new Attribute("Type", node.getType())));
+        if (type != null) {
+            StartTestItem startItem = new StartTestItem(
+                    context.getTestRun(),
+                    itemName,
+                    type,
+                    node.getComment(),
+                    Collections.singleton(new Attribute("Type", node.getType())));
 
-        UUID startedItem = client.startTestItem(context.getActiveContainer(), startItem);
-        if (type != TestItemType.STEP) {
-            context.setCurrentContainer(startedItem);
+            UUID startedItem = client.startTestItem(context.getActiveContainer(), startItem);
+            if (type != TestItemType.STEP) {
+                context.setCurrentContainer(startedItem);
+            }
+            context.addNode(node.getId(), startedItem);
+        } else {
+            Log logEntry = new Log(
+                    context.getTestRun(),
+                    context.getActiveContainer(),
+                    getEventLogLevel(testRunEvent),
+                    String.format("Event: %s (%s)", itemName, testRunEvent.getNode().getType()));
+
+            client.log(logEntry);
         }
-        context.addNode(node.getId(), startedItem);
     }
 
     private void finishItem(TestRunEvent testRunEvent) {
-        Status status = determineItemStatus(testRunEvent);
-        TestSuiteNode node = testRunEvent.getNode();
-
         TestItemType type = determineType(testRunEvent);
-
-        FinishTestItem finishItem = new FinishTestItem(
+        Log logEntry = new Log(
                 context.getTestRun(),
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(testRunEvent.getTimestamp()), ZoneId.systemDefault()),
-                status,
-                node.getComment(),
-                new HashSet<>());
-        client.finishTestItem(context.getNode(node.getId()), finishItem);
+                context.getActiveContainer(),
+                getEventLogLevel(testRunEvent),
+                String.format("Finished %s:\n%s",
+                        testRunEvent.getNode().getType(),
+                        new JSONObject(testRunEvent.asJsonValue().toString()).toString(4)));
 
-        if (type != TestItemType.STEP) {
+        client.log(logEntry);
+
+        if (type != null) {
+            Status status = determineItemStatus(testRunEvent);
+            TestSuiteNode node = testRunEvent.getNode();
+
+            FinishTestItem finishItem = new FinishTestItem(
+                    context.getTestRun(),
+                    LocalDateTime.ofInstant(Instant.ofEpochMilli(testRunEvent.getTimestamp()), ZoneId.systemDefault()),
+                    status,
+                    node.getComment(),
+                    new HashSet<>());
+            client.finishTestItem(context.getNode(node.getId()), finishItem);
             context.endActiveContainer();
         }
-        //context.removeNode(node.getId());
     }
 
     private Status determineItemStatus(TestRunEvent testRunEvent) {
@@ -212,17 +240,12 @@ public class QFTestOrangebeardRunListener implements TestRunListener {
             case "TestSuite":
             case "DataDriver":
                 return TestItemType.SUITE;
-            case "TestCase":
-            case "TestStep":
-            case "IfSequence":
-            case "ProcedureCall":
-            case "Procedure":
-            case "DependencyReference":
-                return TestItemType.TEST;
             case "SetupSequence":
                 return TestItemType.BEFORE_METHOD;
+            case "TestCase":
+                return TestItemType.TEST;
             default:
-                return TestItemType.STEP;
+                return null;
         }
     }
 
